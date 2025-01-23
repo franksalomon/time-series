@@ -1,0 +1,569 @@
+---
+title: "Análisis de la Temperatura en Málaga (1960-2023)"
+author: "Frank Salomón Sulca Palomino"
+date: "2024-12-20"
+output:
+  html_document:
+    df_print: paged
+  pdf_document:
+    latex_engine: xelatex
+    keep_tex: true
+subtitle: "Análisis de Series Temporales - BLOQUE I"
+fontsize: 8pt
+geometry: top=0.5in, bottom=0.5in, left=0.5in, right=0.5in
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval = TRUE)
+```
+
+### Resumen
+
+Este informe analiza la serie temporal de las temperaturas en la ciudad de Málaga desde enero de 1960 hasta diciembre de 2023. Se examinarán patrones de temperatura, tendencias, y variaciones estacionales. Además, se aplicarán métodos estadísticos para determinar la estacionariedad y las proyecciones futuras con el modelo ARMA y SARIMA.
+
+
+### ANALISIS PRELIMINAR DE LA SERIE
+
+#### PREGUNTA 1: Representa graficamente la serie para analizar su comportamiento general y analiza si hay algun problema de heterogeneidad de varianza (si ese fuera el caso, transforma la variable para resolverlo; solo si la transformacion mejora la heterocedasticidad y describe si la serie muestra alguna desviacion del comportamiento estacionario en la media.
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.width=15}
+# Primero, cargamos el archivo `.rdata` que contiene nuestro conjunto de datos.
+# Establecer la organización de los gráficos
+par(mfrow = c(2, 2))  # 2 filas y 2 columnas
+
+# Cargar datos
+load("C:\\escritorio 18.12.24\\CURSOS UPV\\series temporales\\Temp.rdata")
+
+# Crear secuencia de mes/año y agregarla al data frame
+mes_año <- format(seq(from = as.Date("1960-01-01"), to = as.Date("2023-12-01"), by = "month"), "%m/%Y")
+Temp$mes_año <- mes_año
+
+# Seleccionar datos de Málaga
+library(dplyr)
+ciudad_df <- Temp %>% select(mes_año, MALAGA)
+ciudad_df$MALAGA <- as.numeric(ciudad_df$MALAGA)
+
+# Instalar y cargar el paquete
+library(imputeTS)
+
+# Crear la serie original y aplicar imputación estacional
+ts_original <- ts(ciudad_df$MALAGA, start = c(1960, 1), frequency = 12)
+
+# Mostrar los primeros 5 valores faltantes 
+#na_values <- Temp[is.na(Temp$MALAGA), c("mes_año", "MALAGA")]
+#head(na_values, 5)
+
+```
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.width=15}
+# Contar los valores NA en la columna MALAGA
+na_count <- sum(is.na(Temp$MALAGA))
+cat("El numero de los valores NA en la columna MALAGA es:\n")
+print(na_count)
+```
+
+NOTA: Se utilizó la función na_seadec() del paquete "forecast" para imputar los valores faltantes en la serie, ya que había 19 datos ausentes entre 1983 y 2001, de los cuales 10 eran consecutivos en 1990. Esta función descompone la serie en componentes estacionales, de tendencia y error, y utiliza las estimaciones estacionales para rellenar los valores faltantes, respetando los patrones cíclicos de la serie. Esto asegura que la imputación sea coherente con la estacionalidad, lo que es fundamental para mantener la precisión en el análisis y en la aplicación de modelos predictivos como ARMA y SARIMA.
+```{r, echo = TRUE}
+library(imputeTS)
+ts_malaga <- na_seadec(ts_original)
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+# Graficar serie original e imputada
+#plot(ts_original, main = "Serie original sin imputar", col = "black", lwd = 2, xlab = "Tiempo", ylab = "Valor")
+#grid() 
+
+#plot(ts_malaga, main = "Serie imputada (estacional)", col = "blue", lwd = 2, xlab = "Tiempo", ylab = "Valor")
+#grid()
+```
+
+Para comprobar la estacionariedad de la serie se realiza la prueba ADF. Posteriormente, se aplica la prueba KPSS tanto a la serie original como a la serie transformada logarítmicamente, con el objetivo de analizar si la transformación logarítmica influye en los resultados de la prueba. Además, se presentan los gráficos correspondientes para ilustrar estos resultados.
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+library(tseries)
+
+# Prueba ADF para la serie original
+adf_result <- adf.test(ts_malaga)
+
+# Transformación logarítmica
+ts_log <- log(ts_malaga)
+
+# Pruebas KPSS
+kpss_result_original <- kpss.test(ts_malaga)
+kpss_result_log <- kpss.test(ts_log)
+
+# Tablas de resultados
+adf_table <- data.frame(Test = "ADF", Statistic = adf_result$statistic, P.Value = adf_result$p.value)
+kpss_table <- data.frame(Test = c("KPSS a serie Original", "KPSS a serie transformada Log"), Statistic = c(kpss_result_original$statistic, kpss_result_log$statistic), P.Value = c(kpss_result_original$p.value, kpss_result_log$p.value))
+
+# Imprimir resultados
+print(adf_table)
+print(kpss_table)
+
+# Comparar series original y logarítmica
+plot(ts_malaga, main = "Serie Original de Temperaturas(imputada) - MALAGA", xlab = "Año", ylab = "Temperatura", col = "blue")
+
+plot(ts_log, main = "Serie Logarítmica de Temperaturas - MALAGA", xlab = "Año", ylab = "Log(Temperatura)", col = "blue")
+```
+Los resultados de la prueba ADF en la serie imputada arrojó un p-valor de 0.01, indicando estacionariedad en la media (p < 0.05). La prueba KPSS aplicada a la serie original y a la serie logarítmica transformada resultó en p-valores de 0.1 en ambos casos, sugiriendo estacionariedad en el nivel.
+
+Se realizó una transformación logarítmica para estabilizar la varianza. Al comparar los gráficos de la serie original y la serie logarítmica, se observó que la serie logarítmica presentaba una variación casi idéntica a la serie original, sugiriendo que la transformación logarítmica no afectó significativamente la varianza de los datos.
+
+Por otro lado, el análisis de los residuos de un modelo de regresión lineal no mostró evidencia de heterocedasticidad como se ve en el grafico, sugiriendo homocedasticidad con varianza constante en el tiempo. Por tanto, no se requerían transformaciones adicionales.
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+# Analizar heterogeneidad de varianza y residuos (heterocedasticidad)
+t <- seq(from = 1960, by = 1/12, length.out = length(ts_malaga))
+modelo <- lm(ts_malaga ~ t)
+residuos <- residuals(modelo)
+ajustados <- modelo$fitted.values
+plot(ajustados, residuos, main = "Gráfico de residuos")
+abline(h = 0, col = "red")
+
+# Graficar residuos como serie temporal
+residuos_ts <- ts(residuos, start = c(1960, 1), frequency = 12)
+#plot(residuos_ts, main = "Residuos como Serie Temporal", col = "blue", lwd = 2, xlab = "Año", ylab = "Residuos")
+#grid()
+
+```
+
+#### PREGUNTA 2:  Estima la tendencia y la componente estacional utilizando el metodo mas adecuado. Indica el metodo de estimacion que has utilizado y el valor de los parametros que hayas seleccionado para la estimacion; indica los valores de los parametros que hayas ensayado, pero muestra solo los detalles y resultados de la estimacion final. Compara las estimaciones obtenidas con las proporcionadas por la funcion stl.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.width=15}
+
+# Cargar librerías necesarias
+library(forecast)
+library(zoo)
+```
+
+Parámetros para la Estimación de la Tendencia y Estacionalidad
+```{r, echo=TRUE, message=FALSE, warning=FALSE, fig.width=15}
+# Crear secuencia de tiempo
+t <- seq(1960, 2023 + 11/12, by = 1/12)
+
+# Estimación de la tendencia con medias móviles
+tendencia_mm <- rollmean(ts_malaga, k = 12, fill = NA)
+
+# Estimar la componente estacional con medias estacionales
+indest <- rep(1:12, length.out = length(ts_malaga))
+compst <- tapply(ts_malaga, INDEX = indest, FUN = mean, na.rm = TRUE)
+estst <- ts(compst[indest], start = c(1960, 1), frequency = 12)
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.width=15}
+# Ajuste de modelo lineal
+lm_lineal <- lm(ts_malaga ~ t)
+lm_cuadratica <- lm(ts_malaga ~ poly(t, 2))
+
+# Descomposición usando STL
+descomp_stl <- stl(ts_malaga, s.window = "periodic")
+tendencia_stl <- descomp_stl$time.series[, "trend"]
+estacionalidad_stl <- descomp_stl$time.series[, "seasonal"]
+
+
+# Graficar la tendencia usando medias móviles
+plot(t, tendencia_mm, type = "l", col = "green", main = "Estimación de la Tendencia (Medias Móviles)", ylab = "Tendencia", xlab = "Tiempo")
+
+# Graficar la tendencia usando modelo lineal
+#plot(t, lm_lineal$fitted.values, type = "l", col = "red", main = "Estimación de la Tendencia (Modelo Lineal)", ylab = "Tendencia", xlab = "Tiempo")
+
+# Graficar la tendencia usando modelo cuadrático
+#plot(t, lm_cuadratica$fitted.values, type = "l", col = "blue", main = "Estimación de la Tendencia (Modelo Cuadrático)", ylab = "Tendencia", xlab = "Tiempo") 
+# Graficar la tendencia usando STL
+plot(tendencia_stl, type = "l", main = "Estimación de la Tendencia (STL)", ylab = "Tendencia", xlab = "Tiempo")
+
+# Especificar manualmente los límites del eje y
+ylim_media <- c(0, 400)  # Límites para medias estacionales
+ylim_stl <- c(-200, 200)    # Límites para estacionalidad STL
+
+# Graficar la estacionalidad usando medias estacionales con límites del eje y manuales
+plot(estst, type = "l", col = "red", main = "Estimación de la Estacionalidad (Medias Estacionales)", ylab = "Estacionalidad", xlab = "Tiempo", ylim = ylim_media)
+
+# Graficar la estacionalidad usando STL con límites del eje y manuales
+plot(estacionalidad_stl, type = "l", main = "Estimación de la Estacionalidad (STL)", ylab = "Estacionalidad", xlab = "Tiempo", ylim = ylim_stl)
+
+
+```
+
+Para estimar la tendencia y el componente estacional de la serie temporal, utilicé un modelo de regresión lineal simple (lm(ts_malaga ~ t)) para la tendencia, ya que mostró un buen ajuste. También probé un modelo cuadrático, pero no mejoró significativamente. Para suavizar la serie, utilicé la función rollmean con una ventana de 12 meses, que ofreció el mejor balance entre suavizado y ajuste. Para estimar el componente estacional, utilicé la función tapply con el índice indest para calcular las medias estacionales. Probé configuraciones con periodos de 6, 12 y 24 meses, y la estimación final se basó en un periodo de 12 meses, ya que representó de manera más precisa el componente estacional. Finalmente, comparé los resultados con los obtenidos mediante la función stl, y ambos métodos coincidieron, validando las elecciones de parámetros.
+
+
+
+### PREGUNTA 3: Convierte la serie en una serie estacionaria diferenciando de la forma necesaria para eliminar la componente estacional y la tendencia.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+# Cargar la librería necesaria
+library(tseries)
+library(forecast)
+
+# Realizar la prueba ADF en la serie original
+adf_original <- adf.test(ts_malaga, alternative = "stationary")
+cat("Prueba ADF para la serie original:\n")
+print(adf_original)
+
+# Realizar la prueba KPSS en la serie original
+kpss_original <- kpss.test(ts_malaga, null = "Level")
+cat("\nPrueba KPSS para la serie original:\n")
+print(kpss_original)
+
+# Diferenciar la serie temporal con un lag de 12
+dif12ts_malaga <- diff(ts_malaga, lag = 12)
+
+# Realizar la prueba ADF en la serie diferenciada (Lag = 12)
+adf_diff12 <- adf.test(dif12ts_malaga, alternative = "stationary")
+cat("\nPrueba ADF para la serie diferenciada (Lag = 12):\n")
+print(adf_diff12)
+
+# Realizar la prueba KPSS en la serie diferenciada (Lag = 12)
+kpss_diff12 <- kpss.test(dif12ts_malaga, null = "Level")
+cat("\nPrueba KPSS para la serie diferenciada (Lag = 12):\n")
+print(kpss_diff12)
+
+# Graficar la serie original
+plot(ts_malaga, main = "Serie Original: Temperaturas de Málaga", ylab = "Temperatura", xlab = "Tiempo")
+
+# Graficar la serie diferenciada (Lag = 12)
+plot(dif12ts_malaga, main = "Serie Diferenciada (Lag = 12): Temperaturas de Málaga", ylab = "Diferencia de Temperatura", xlab = "Tiempo")
+
+
+# Graficos ACF y PACF para la serie original
+#acf(ts_malaga, main = "ACF - Serie Original")
+#pacf(ts_malaga, main = "PACF - Serie Original")
+
+# Graficos ACF y PACF para la serie diferenciada (Lag = 12)
+acf(dif12ts_malaga, main = "ACF - Serie Diferenciada (Lag = 12)")
+pacf(dif12ts_malaga, main = "PACF - Serie Diferenciada (Lag = 12)")
+
+```
+
+Según los gráficos de PACF y ACF, después de la diferenciación estacional, el primer rezago en PACF es 0.3, y todos los siguientes son cercanos a 0, excepto el 12º, que muestra un pico negativo de -0.4. En ACF, el primer rezago es 1, el segundo 0.3, el tercero alrededor de 0,1 porqueesta fuera de los límites de confianza y luego los rezagos caen rápidamente a 0 , lo que indica una pequeña dependencia residual. Además, el pico negativo en el onceavo rezago sugiere una dependencia estacional residual. Estos resultados indican que, aunque la diferenciación estacional de orden 1 con un período de 12 meses resolvió gran parte de la estacionalidad, persiste una dependencia estacional no completamente resuelta.
+
+Las pruebas de estacionariedad confirman que la serie es estacionaria, ambas pruebas reflejan estos resultados: ADF (p-value de 0.01) y KPSS (p-value de 0.1) 
+
+### MODELIZACIÓN DE LA SERIE OBTENIDAD EN EL APARTADO 3
+
+#### PREGUNTA 1: Analiza si es util plantear un modelo tipo ARMA para la serie.
+
+Dado que la serie diferenciada es estacionaria y los gráficos ACF y PACF sugieren una estructura ARMA, es razonable considerar un modelo ARMA. Sin embargo, la dependencia estacional residual en el rezago 12 indica que un modelo ARMA podría no ser suficiente por sí solo, haciendo más adecuado un modelo SARIMA, que incluye componentes estacionales. Por tanto, se necesita un análisis más profundo para ajustar el modelo ARMA adecuado y verificar sus coeficientes.
+
+
+
+#### PREGUNTA 2 : Selecciona de forma razonada el modelo ARMA que creas mas adecuado (NO se puede utilizar como criterio la orden auto.arima) y muestra el modelo ajustado. Contrasta si los coeficientes del modelo son iguales a 0 (cada uno de forma individual).
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+# Analizar ACF y PACF de la serie diferenciada dif12ts_malaga
+#acf(dif12ts_malaga, lag.max = 12, main = "ACF de dif12ts_malaga (12 lags)")  # ACF con lag máximo 12
+#pacf(dif12ts_malaga, lag.max = 12, main = "PACF de dif12ts_malaga (12 lags)")  # PACF con lag máximo 12
+
+# Para ver dependencias más largas (hasta 24 meses):
+acf(dif12ts_malaga, lag.max = 24, main = "ACF de dif12ts_malaga (24 lags)")  # ACF con lag máximo 24
+pacf(dif12ts_malaga, lag.max = 24, main = "PACF de dif12ts_malaga (24 lags)")  # PACF con lag máximo 24
+```
+
+```{r, echo = FALSE, message=FALSE, warning=FALSE} 
+# Establecer la organización de los gráficos
+
+# Test de Ljung-Box
+# H0: Los datos son ruido blanco
+#Box.test(dif12ts_malaga, lag = 20, type = "Ljung-Box")
+# El p-valor es menor o igual a 0.05: Rechazas la hipótesis nula, lo que indica que hay dependencia temporal.
+```
+
+Selección preliminar del modelo AR:
+```{r, echo = FALSE, message=FALSE, warning=FALSE} 
+
+# Analizar "PACF de dif12ts_malaga" para ayudar a determinar el orden del modelo AR
+for (i in c(1:10)) {
+    AR_model <- arima(dif12ts_malaga, order=c(i, 0, 0))  # Ajuste del modelo AR con diferentes órdenes p
+    print(paste("AIC para AR(", i, "):", AR_model$aic))
+}
+```
+
+Selección preliminar del modelo MA:
+```{r, echo = FALSE, message=FALSE, warning=FALSE} 
+
+# Analizar "ACF de dif12ts_malaga" para ayudar a determinar el orden del modelo MA
+for (i in c(1:10)) {
+    MA_model <- arima(dif12ts_malaga, order=c(0, 0, i))  # Ajuste del modelo MA con diferentes órdenes q
+    print(paste("AIC para MA(", i, "):", MA_model$aic))
+}
+```
+
+Selección preliminar del modelo ARMA:
+```{r, echo = FALSE, message=FALSE, warning=FALSE} 
+
+# Establecer la organización de los gráficos para ver los resultados
+par(mfrow = c(2, 2))  # 2 filas y 2 columnas
+
+# Ajustar modelos ARMA con diferentes combinaciones de p y q
+for (i in c(1:4)) {
+    for (j in c(1:4)) {
+        ARMA_model <- arima(dif12ts_malaga, order=c(i, 0, j))  # Ajuste del modelo ARMA con diferentes combinaciones de p y q
+        cat("AIC para ARMA(", i, ",", j, "):", ARMA_model$aic, "\n")
+    }
+}
+```
+
+Ajuste de los mejores modelos
+
+Ajustar modelo ARMA(4,4)
+```{r, echo = FALSE, message=FALSE, warning=FALSE} 
+  modelo_arma_4_4 <- arima(dif12ts_malaga, order = c(4, 0, 4))
+  cat("AIC para ARMA(4,4):", modelo_arma_4_4$aic, "\n")
+  summary(modelo_arma_4_4)
+```
+
+Ajustar modelo ARMA(4,3)
+```{r, echo = FALSE, message=FALSE, warning=FALSE} 
+
+  modelo_arma_4_3 <- arima(dif12ts_malaga, order = c(4, 0, 3))
+  cat("AIC para ARMA(4,3):", modelo_arma_4_3$aic, "\n")
+  summary(modelo_arma_4_3)
+```
+
+Selección del modelo
+```{r, echo = FALSE, message=FALSE, warning=FALSE} 
+  
+  cat("El modelo ARMA(4,3) fue seleccionado porque no tiene coeficientes nulos.\n")
+  modelo_arma_optimo <- modelo_arma_4_3
+
+```
+
+Se ajustaron modelos ARMA para analizar una serie temporal diferenciada estacionalmente con un período de 12 meses. Primero, se calcularon las funciones de autocorrelación (ACF) y autocorrelación parcial (PACF) con retardos de 12 y 24 meses. Los gráficos mostraron que, aunque la diferenciación estacional resolvió gran parte de la estacionalidad, persiste una pequeña dependencia residual. Tras analizar los modelos AR y MA con órdenes entre 1 y 10, se seleccionó el modelo ARMA(4,3) por su AIC más bajo y la ausencia de coeficientes nulos, en comparación con el ARMA(4,4)
+
+
+
+#### PREGUNTA 3: Valida el modelo utilizando las herramientas adecuadas e indica cual es la comprobacion mas importante.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.width=15}
+
+# Prueba de normalidad Shapiro-Wilk
+shapiro.test(residuos)
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.width=15}
+
+# Establecer la organización de los gráficos
+
+# Obtener los residuos
+residuos <- residuals(modelo_arma_optimo)
+
+# Gráfico de los residuos
+plot(residuos, main = "Residuos del modelo ARMA(4,3)", ylab = "Residuos", xlab = "Índice", col = "blue")
+abline(h = 0, col = "red", lty = 2)
+
+# ACF de los residuos
+#acf(residuos, main = "ACF de los Residuos")
+
+# Gráfico Q-Q para evaluar normalidad
+qqnorm(residuos, main = "Gráfico Q-Q de los Residuos")
+qqline(residuos, col = "red", lty = 2)
+
+# Análisis adicional de residuos
+
+# Gráfico para observar patrones
+#plot(as.ts(residuos), main = "Residuos del modelo ARMA(4,3)", ylab = "Residuos", xlab = "Tiempo")
+
+# Calcular la ACF sin graficarla inicialmente
+acf_data <- acf(residuos, lag.max = 50, plot = FALSE)
+
+# ACF de los residuos con lag máximo 
+acf(residuos, lag.max = 50, main = "ACF de los residuos")
+
+
+
+
+```
+
+Prueba de Ljung-Box
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.width=15}
+Box.test(residuos, lag = 20, type = "Ljung-Box")
+
+# Diagnóstico completo de residuos
+#tsdiag(modelo_arma_optimo)
+
+```
+
+Los resultados obtenidos en la validación del modelo ARMA(4,3) evidencian aspectos importantes sobre su desempeño. La prueba de Ljung-Box arroja un estadístico X-squared = 151.84, con 20 grados de libertad y un p-valor menor a 2.2e-16, lo que indica que los residuos no son independientes. Este resultado sugiere que el modelo no ha logrado capturar completamente la estructura de autocorrelación de los datos, ya que persisten patrones en los residuos que deberían haber sido eliminados.
+
+Por otro lado, la prueba de Shapiro-Wilk reporta un estadístico W = 0.9982 y un p-valor de 0.6246, lo que confirma que los residuos siguen una distribución aproximadamente normal. Este comportamiento es consistente con un modelo que genera residuos adecuadamente distribuidos, pero no necesariamente independientes.
+
+Además, el análisis de la función de autocorrelación (ACF) de los residuos revela un retardo significativo en el orden 13, indicando una posible componente estacional que no ha sido considerada en el modelo ARMA(4,3). Este hallazgo refuerza la necesidad de ajustar un modelo más complejo, como un SARIMA, para capturar tanto la periodicidad como las estructuras temporales presentes en los datos.
+
+En resumen, el modelo ARMA(4,3) presenta limitaciones al no garantizar la independencia de los residuos y al no capturar una componente estacional evidente en el análisis de autocorrelación. Aunque cumple con la normalidad de los residuos, su desempeño general no es adecuado, por lo que se recomienda explorar enfoques que integren la estacionalidad para mejorar su capacidad predictiva.
+
+#### PREGUNTA 4: Ajusta un modelo SARIMA a la serie original, que unifique en un modelo global los resultados de los apartados anteriores. El modelo debe ser el mismo que has obtenido en el paso 2 partiendo de la serie estacionaria.
+
+Ajustar el modelo SARIMA utilizando el modelo ARMA(4,3)
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.width=15}
+
+# Cargar las librerías necesarias
+library(forecast)
+
+# Especificamos las órdenes AR y MA como (4,3) y elegimos el parámetro estacional.
+modelo_sarima <- arima(dif12ts_malaga, order = c(4, 0, 3), seasonal = list(order = c(1, 0, 1), period = 12))
+
+# Ver los resultados del modelo SARIMA ajustado
+summary(modelo_sarima)
+```
+
+Prueba de Ljung-Box sobre los residuos
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.width=15}
+
+Box.test(residuos, lag = 20, type = "Ljung-Box")
+```
+Prueba de normalidad de Shapiro-Wilk sobre los residuos
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.width=15}
+shapiro.test(residuos)
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.width=15}
+
+# Evaluar la adecuación del modelo a través de los residuos
+residuos <- modelo_sarima$residuals
+
+# Graficar los residuos para una inspección visual
+plot(residuos, main = "Residuos del modelo SARIMA(4,3)")
+acf(residuos, lag.max = 50, main = "ACF de los residuos del modelo SARIMA(4,3)")
+```
+
+El modelo SARIMA ajustado a la serie original es un modelo estacional autoregresivo de media móvil con especificaciones ARMA(4,3) y estacionalidad (1,0,1) con un período de 12, lo que indica una estacionalidad mensual anual. Los coeficientes estimados para el modelo son los siguientes: AR1 = -0.5586, AR2 = 1.0419, AR3 = 0.7269, AR4 = -0.2501, MA1 = 0.9175, MA2 = -0.7121, MA3 = -0.9278, SAR1 = 0.0099, SMA1 = -0.9642 e intercepto = -0.0949. El error cuadrático medio (RMSE) de ajuste es de 10.17, y el MAE es de 7.98, lo que indica un rendimiento razonable en la predicción de la serie.
+
+En cuanto a la evaluación del modelo, la prueba de Ljung-Box arroja un p-valor de 0.762, lo que indica que no se rechaza la hipótesis nula de independencia de los residuos, sugiriendo que el modelo ha capturado bien la autocorrelación. Además, la prueba de normalidad de Shapiro-Wilk tiene un p-valor de 0.6246, lo que sugiere que los residuos siguen una distribución normal.
+
+Al analizar el gráfico de los residuos del modelo SARIMA(4,3), se observa que únicamente el primer rezago muestra un valor que alcanza 1, lo cual es un comportamiento común en modelos de series temporales, ya que puede reflejar la persistencia de ciertos patrones a corto plazo. Sin embargo, el resto de los rezagos se encuentran dentro de los límites de confianza, es decir, alrededor de 0. Esto sugiere que los residuos no muestran autocorrelación significativa en los rezagos más alejados, lo que es indicativo de que el modelo ha logrado captar la estructura temporal de los datos de manera efectiva.
+
+Los análisis visuales del gráfico de los residuos y de la función de autocorrelación (ACF) sugieren que los residuos están distribuidos aleatoriamente, lo que implica que el modelo es adecuado. En conclusión, el modelo SARIMA(4,3)(1,0,1)[12] ajustado es adecuado para la serie temporal analizada, ya que los residuos cumplen con las condiciones de normalidad e independencia. Los parámetros son significativos, y el ajuste es razonable, por lo que este modelo captura tanto la autocorrelación temporal como la estacionalidad de la serie, siendo una buena opción para realizar predicciones.
+
+
+### PREGUNTA 5: Calcula predicciones de la serie de datos original para el proximo año. Calcula tambien intervalos de confianza al 95 % para estas predicciones y representa en el mismo grafico las predicciones y los intervalos de confianza.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.width=15}
+
+# Realizar las predicciones para el próximo año (12 meses)
+# Usamos el modelo SARIMA previamente ajustado (modelo_sarima)
+predicciones <- predict(modelo_sarima, n.ahead = 12)
+
+# Extraer las predicciones puntuales y los intervalos de confianza al 95%
+predicciones_puntuales <- predicciones$pred
+intervalos_confianza <- predicciones$se * qnorm(0.975)  # Intervalos de confianza al 95%
+
+# Obtener las predicciones de diferencias estacionales (predicciones de la diferenciación)
+predicciones_diferencias <- predicciones$pred
+
+# Revertir la diferenciación sumando a la última observación de la serie original
+predicciones_originales <- ts_malaga[length(ts_malaga)] + cumsum(predicciones_diferencias)
+
+# Crear un vector con las etiquetas de los meses en formato abreviado y con el año 2024
+etiquetas_meses <- format(seq(from = as.Date("2024-01-01"), by = "month", length.out = 12), "%b %Y")
+  
+# Graficar la serie original y las predicciones con los intervalos de confianza
+plot(ts_malaga, main = "Predicciones del modelo SARIMA(4,3) con Intervalos de Confianza", 
+     xlim = c(length(ts_malaga), length(ts_malaga) + 12), col = "black", 
+     ylim = c(120, 220), xaxt = "n")
+  axis(2, at = seq(120, 220, by = 10))
+  
+  axis(1, at = seq(length(ts_malaga) + 1, length(ts_malaga) + 12), labels = etiquetas_meses, las = 1)
+lines(seq(length(ts_malaga) + 1, length(ts_malaga) + 12), predicciones_originales, col = "red", lwd = 2)  # Predicciones puntuales
+lines(seq(length(ts_malaga) + 1, length(ts_malaga) + 12), predicciones_originales + intervalos_confianza, col = "blue", lty = 2, lwd = 1)  # Intervalo superior
+lines(seq(length(ts_malaga) + 1, length(ts_malaga) + 12), predicciones_originales - intervalos_confianza, col = "blue", lty = 2, lwd = 1)  # Intervalo inferior
+
+
+# Añadir leyenda al gráfico
+legend("topleft", legend = c("Serie original", "Predicciones", "Intervalos de confianza (95%)"), 
+       col = c("black", "red", "blue"), lty = c(1, 1, 2), lwd = c(1, 2, 1), bty = "n")
+
+
+# Crear tabla de predicciones
+tabla_predicciones <- data.frame(
+  Mes = etiquetas_meses,
+  Prediccion = predicciones_originales,
+  Inferior = predicciones_originales - intervalos_confianza,
+  Superior = predicciones_originales + intervalos_confianza
+)
+
+# Mostrar la tabla
+print(tabla_predicciones)
+```
+
+
+#### PREGUNTA 6: Analiza si existe (puede que no exista) otro modelo SARIMA que creas que es mas adequado que el obtenido en el apartado 4. Justifica en que te basas para tu decision y si encuentras un modelo mejor ajustalo
+
+```{r, echo=TRUE, message=FALSE, warning=FALSE, fig.width=15}
+# Establecer la organización de los gráficos
+
+#Ajustar otros modelos SARIMA con diferentes combinaciones de parámetros
+modelo_sarima_1 <- arima(dif12ts_malaga, order = c(1, 0, 1), seasonal = list(order = c(1, 0, 1), period = 12))
+modelo_sarima_2 <- arima(dif12ts_malaga, order = c(2, 0, 2), seasonal = list(order = c(1, 0, 1), period = 12))
+modelo_sarima_3 <- arima(dif12ts_malaga, order = c(3, 0, 3), seasonal = list(order = c(1, 0, 1), period = 12))
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+# Comparar AIC y BIC para los diferentes modelos
+AIC(modelo_sarima, modelo_sarima_1, modelo_sarima_2, modelo_sarima_3)
+BIC(modelo_sarima, modelo_sarima_1, modelo_sarima_2, modelo_sarima_3)
+
+# Evaluar los residuos de todos los modelos
+residuos_sarima <- modelo_sarima$residuals
+residuos_1 <- modelo_sarima_1$residuals
+residuos_2 <- modelo_sarima_2$residuals
+residuos_3 <- modelo_sarima_3$residuals
+
+# Crear una tabla para almacenar los resultados de Ljung-Box
+resultados_ljung_box <- data.frame(
+  Modelo = c("Modelo SARIMA", "Modelo SARIMA 1", "Modelo SARIMA 2", "Modelo SARIMA 3"),
+  Ljung_Box_p_value = c(
+    Box.test(residuos_sarima, lag = 20, type = "Ljung-Box")$p.value,
+    Box.test(residuos_1, lag = 20, type = "Ljung-Box")$p.value,
+    Box.test(residuos_2, lag = 20, type = "Ljung-Box")$p.value,
+    Box.test(residuos_3, lag = 20, type = "Ljung-Box")$p.value
+  )
+)
+
+# Crear una tabla para almacenar los resultados de Shapiro-Wilk
+resultados_shapiro_wilk <- data.frame(
+  Modelo = c("Modelo SARIMA", "Modelo SARIMA 1", "Modelo SARIMA 2", "Modelo SARIMA 3"),
+  Shapiro_Wilk_p_value = c(
+    shapiro.test(residuos_sarima)$p.value,
+    shapiro.test(residuos_1)$p.value,
+    shapiro.test(residuos_2)$p.value,
+    shapiro.test(residuos_3)$p.value
+  )
+)
+
+# Imprimir las tablas de resultados
+print(resultados_ljung_box)
+print(resultados_shapiro_wilk)
+
+```
+
+```{r, eval=FALSE, echo=FALSE}
+
+# Graficar los residuos para una inspección visual de todos los modelos
+plot(residuos_sarima, main = "Residuos del modelo SARIMA(4,3)(1,0,1)[12]")
+acf(residuos_sarima, lag.max = 50, main = "ACF de los residuos del SARIMA(4,3)(1,0,1)[12]")
+plot(residuos_1, main = "Residuos del modelo SARIMA(2,2)(1,0,1)[12]")
+acf(residuos_1, lag.max = 50, main = "ACF de los residuos del modelo SARIMA(2,2)(1,0,1)[12]")
+plot(residuos_2, main = "Residuos del modelo SARIMA(3,3)(1,0,1)[12]")
+acf(residuos_2, lag.max = 50, main = "ACF de los residuos del modelo SARIMA(3,3)(1,0,1)[12]")
+plot(residuos_3, main = "Residuos del modelo SARIMA(1,1)(2,0,1)[12]")
+acf(residuos_3, lag.max = 50, main = "ACF de los residuos del modelo SARIMA(1,1)(2,0,1)[12]")
+
+# Comparar las predicciones de los diferentes modelos
+pred_sarima <- predict(modelo_sarima, n.ahead = 12)
+pred_sarima_1 <- predict(modelo_sarima_1, n.ahead = 12)
+pred_sarima_2 <- predict(modelo_sarima_2, n.ahead = 12)
+pred_sarima_3 <- predict(modelo_sarima_3, n.ahead = 12)
+
+```
+
+Basado en los resultados obtenidos, el modelo_sarima, el cual fue nuestro modelo elegido para las predicciones, es el que muestra el mejor desempeño en comparación con los otros modelos evaluados. Este modelo tiene los valores más bajos de AIC y BIC, lo que indica que es el modelo más eficiente en términos de ajuste y penalización por complejidad. Además, los residuos de este modelo no presentan autocorrelación significativa, según la prueba de Ljung-Box, lo que sugiere que ha capturado adecuadamente la estructura temporal de la serie. También, la prueba de Shapiro-Wilk revela que los residuos siguen una distribución normal, lo que es otra señal de que el modelo está bien ajustado.
+
+Dado que el modelo_sarima no solo tiene un ajuste más eficiente, sino también residuos adecuados en términos de independencia y normalidad, no parece necesario ajustar otro modelo SARIMA. El modelo actual (SARIMA(4,0,3)(1,0,1)[12]) parece ser el más adecuado en función de los criterios utilizado, los resultados actuales sugieren que el modelo obtenido es el más eficiente.
+
